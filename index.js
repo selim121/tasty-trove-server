@@ -55,8 +55,20 @@ async function run() {
       res.send({ token });
     })
 
+    //Warning: use verifyJWT before using verifyAdmin
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = {email: email};
+      const user = await usersCollection.findOne(query);
+      if(user?.role !== 'admin'){
+        return res.status(403).send({error: true, message: 'Forbidden message'})
+      }
+      next();
+    }
+
+
     //users
-    app.get('/users', async (req, res) => {
+    app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     })
@@ -69,6 +81,20 @@ async function run() {
         return res.send({ message: 'user already exists' })
       }
       const result = await usersCollection.insertOne(user);
+      res.send(result);
+    })
+
+    // security layer: verifyJWT
+    // email same
+    // check admin
+    app.get('/users/admin/:email', verifyJWT, async(req, res) => {
+      const email = req.params.email;
+      const query = {email: email};
+      if(req.decoded.email !== email) {
+        res.send({admin: false});
+      }
+      const user = await usersCollection.findOne(query);
+      const result = {admin: user?.role === 'admin'};
       res.send(result);
     })
 
@@ -112,7 +138,7 @@ async function run() {
 
       const decodedEmail = req.decoded.email;
       if(email !== decodedEmail) {
-        res.status(403).send({error: true, message: 'Provident access'});
+        res.status(403).send({error: true, message: 'Forbidden access'});
       }
 
       const query = { email: email };
