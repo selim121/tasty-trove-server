@@ -12,14 +12,14 @@ app.use(express.json());
 
 const verifyJWT = (req, res, next) => {
   const authorization = req.headers.authorization;
-  if(!authorization) {
-    return res.status(401).send({error: true, message: 'Unauthorized access'});
+  if (!authorization) {
+    return res.status(401).send({ error: true, message: 'Unauthorized access' });
   }
   //bearer token
   const token = authorization.split(' ')[1];
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-    if(err) {
-      return res.status(401).send({error: true, message: 'Unauthorized access'});
+    if (err) {
+      return res.status(401).send({ error: true, message: 'Unauthorized access' });
     }
     req.decoded = decoded;
     next();
@@ -60,10 +60,10 @@ async function run() {
     //Warning: use verifyJWT before using verifyAdmin
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.email;
-      const query = {email: email};
+      const query = { email: email };
       const user = await usersCollection.findOne(query);
-      if(user?.role !== 'admin'){
-        return res.status(403).send({error: true, message: 'Forbidden message'})
+      if (user?.role !== 'admin') {
+        return res.status(403).send({ error: true, message: 'Forbidden message' })
       }
       next();
     }
@@ -89,14 +89,14 @@ async function run() {
     // security layer: verifyJWT
     // email same
     // check admin
-    app.get('/users/admin/:email', verifyJWT, async(req, res) => {
+    app.get('/users/admin/:email', verifyJWT, async (req, res) => {
       const email = req.params.email;
-      const query = {email: email};
-      if(req.decoded.email !== email) {
-        res.send({admin: false});
+      const query = { email: email };
+      if (req.decoded.email !== email) {
+        res.send({ admin: false });
       }
       const user = await usersCollection.findOne(query);
-      const result = {admin: user?.role === 'admin'};
+      const result = { admin: user?.role === 'admin' };
       res.send(result);
     })
 
@@ -125,15 +125,15 @@ async function run() {
       res.send(result);
     })
 
-    app.post('/menu',verifyJWT, verifyAdmin, async(req, res) => {
+    app.post('/menu', verifyJWT, verifyAdmin, async (req, res) => {
       const newItem = req.body;
       const result = await menuCollection.insertOne(newItem);
       res.send(result);
     })
 
-    app.delete('/menu/:id',verifyJWT, verifyAdmin, async(req, res) => {
+    app.delete('/menu/:id', verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)};
+      const query = { _id: new ObjectId(id) };
       const result = await menuCollection.deleteOne(query);
       res.send(result);
     })
@@ -145,15 +145,15 @@ async function run() {
     })
 
     // cart collection 
-    app.get('/carts',verifyJWT, async (req, res) => {
+    app.get('/carts', verifyJWT, async (req, res) => {
       const email = req.query.email;
       if (!email) {
         res.send([]);
       }
 
       const decodedEmail = req.decoded.email;
-      if(email !== decodedEmail) {
-        res.status(403).send({error: true, message: 'Forbidden access'});
+      if (email !== decodedEmail) {
+        res.status(403).send({ error: true, message: 'Forbidden access' });
       }
 
       const query = { email: email };
@@ -174,9 +174,9 @@ async function run() {
     })
 
     //create payment intent
-    app.post('/create-payment-intent', verifyJWT, async(req, res) => {
-      const {price} = req.body;
-      const amount = price*100;
+    app.post('/create-payment-intent', verifyJWT, async (req, res) => {
+      const { price } = req.body;
+      const amount = price * 100;
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amount,
         currency: 'usd',
@@ -188,26 +188,52 @@ async function run() {
     })
 
     //payment related api
-    app.post('/payments', verifyJWT, async(req, res) => {
+    app.post('/payments', verifyJWT, async (req, res) => {
       const payment = req.body;
       const insertResult = await paymentCollection.insertOne(payment);
-      const query = {_id: {$in: payment.cartItems.map(id => new ObjectId(id))}};
+      const query = { _id: { $in: payment.cartItems.map(id => new ObjectId(id)) } };
       const deleteResult = await cartCollection.deleteMany(query);
-      res.send({insertResult, deleteResult});
+      res.send({ insertResult, deleteResult });
     })
 
-    app.get('/admin-stats', verifyJWT, verifyAdmin, async(req, res) => {
+    app.get('/admin-stats', verifyJWT, verifyAdmin, async (req, res) => {
       const users = await usersCollection.estimatedDocumentCount();
       const products = await menuCollection.estimatedDocumentCount();
       const orders = await paymentCollection.estimatedDocumentCount();
       const payments = await paymentCollection.find().toArray();
-      const revenue = payments.reduce((totalPayment, initialPayment) => totalPayment + initialPayment.price , 0)
+      const revenue = payments.reduce((totalPayment, initialPayment) => totalPayment + initialPayment.price, 0)
       res.send({
         users,
         products,
         orders,
         revenue
       })
+    })
+
+    app.get('/order-stats', async (req, res) => {
+      const pipeline = [
+        {
+          $lookup: {
+            from: 'menu',
+            localField: 'menuItems',
+            foreignField: '_id',
+            as: 'menuItemsData'
+          }
+        },
+        {
+          $unwind: '$menuItemsData'
+        },
+        {
+          $group: {
+            _id: '$menuItemsData.category',
+            count: { $sum: 1 },
+            total_price: { $sum: '$menuItemsData.price' }
+          }
+        }
+      ];
+
+      const result = await paymentCollection.aggregate(pipeline).toArray();
+      res.send(result);
     })
 
     // Send a ping to confirm a successful connection
